@@ -1,0 +1,12 @@
+type: '@workshop/cloud-service'
+typeVersion: 2026.08.21.1
+id: 7049ef42-9465-4c2e-a5ac-10fbafb10971
+name: recommendations
+version: 1
+tags:
+  tier: standard
+  team: ml
+globalArguments:
+  baseUrl: http://127.0.0.1:8099
+  serviceId: recommendations
+methods: {}

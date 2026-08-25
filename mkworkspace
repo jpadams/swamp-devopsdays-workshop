@@ -1,0 +1,47 @@
+#!/usr/bin/env sh
+# mkworkspace — create your own workshop workspace from this resources repo.
+#
+#   ./mkworkspace ~/my-workshop
+#
+# You run this for yourself; there is nothing to provision for anyone else.
+#
+# Copies in only what can't be regenerated (the fake cloud, this preflight, the
+# exercises) and deliberately leaves behind the solution branches and the
+# facilitator notes, so your coding agent can't read the answers.
+set -eu
+
+DEST=${1:-}
+if [ -z "$DEST" ]; then
+  echo "usage: ./mkworkspace <path>       e.g. ./mkworkspace ~/my-workshop" >&2
+  exit 2
+fi
+if [ -e "$DEST" ]; then
+  echo "refusing: $DEST already exists — pick a path that doesn't." >&2
+  exit 1
+fi
+SRC=$(cd "$(dirname "$0")" && pwd)
+for need in git swamp; do
+  command -v "$need" >/dev/null 2>&1 || { echo "$need not found — run $SRC/preflight --resources first" >&2; exit 1; }
+done
+
+mkdir -p "$DEST"
+DEST=$(cd "$DEST" && pwd)
+
+cp -R "$SRC/controlplane" "$DEST/"
+cp "$SRC/preflight" "$DEST/"
+mkdir -p "$DEST/participant"
+cp "$SRC/participant/EXERCISES.md" "$DEST/participant/"
+
+cd "$DEST"
+git init -q -b main
+swamp repo init "$DEST" --tool claude >/dev/null 2>&1 </dev/null \
+  || { echo "swamp repo init failed in $DEST" >&2; exit 1; }
+git add -A
+git commit -q -m "workshop start"
+
+echo
+echo "Workspace ready: $DEST"
+echo "  exercises: $DEST/participant/EXERCISES.md"
+echo "  catch up:  $SRC/catchup <exercise-number> $DEST"
+echo
+cd "$DEST" && ./preflight

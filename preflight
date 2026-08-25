@@ -1,0 +1,170 @@
+#!/usr/bin/env sh
+# Workshop preflight. Run this BEFORE you get on conference wifi.
+# It verifies your machine is ready and warms every lazy download.
+#
+# Run it from YOUR OWN workspace, not from the resources repo. Every check here
+# is relative to the current directory, so running the resources repo's copy
+# from somewhere else reports that somewhere else — which is what you want, but
+# `cd`-ing into the resources repo first reports the wrong thing cheerfully.
+#
+#   ./preflight              check this directory as a participant workspace
+#   ./preflight --resources  facilitator: yes, I am in the resources repo
+set -u
+
+ALLOW_RESOURCES=0
+for a in "$@"; do
+  case "$a" in
+    --resources|-r) ALLOW_RESOURCES=1 ;;
+    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) printf "unknown option: %s (try --help)\n" "$a" >&2; exit 2 ;;
+  esac
+done
+
+# Belt-and-braces for the `swamp ... search` picker trap: with a terminal on
+# stdin those commands open an interactive fuzzy-picker TUI and block forever.
+# Every call below also passes --json, but nothing in this script is
+# interactive, so detach stdin outright and stay safe as the script grows.
+exec 0</dev/null
+
+pass() { printf "  \033[32mok\033[0m    %s\n" "$1"; }
+fail() { printf "  \033[31mFAIL\033[0m  %s\n" "$1"; FAILED=1; }
+warn() { printf "  \033[33mwarn\033[0m  %s\n" "$1"; }
+FAILED=0
+
+echo
+echo "Swamp workshop preflight"
+echo "checking: $(pwd)"
+echo "------------------------"
+
+# 1. git
+if command -v git >/dev/null 2>&1; then
+  pass "git $(git --version | awk '{print $3}')"
+else
+  fail "git not found — install git"
+fi
+
+# 2. swamp binary
+if command -v swamp >/dev/null 2>&1; then
+  pass "swamp $(swamp --version 2>/dev/null | tail -1 | sed 's/\x1b\[[0-9;]*m//g' | awk '{print $2}')"
+else
+  fail "swamp not found — curl -fsSL https://swamp-club.com/install.sh | sh"
+  echo
+  echo "Preflight aborted: install swamp first."
+  exit 1
+fi
+
+# 3. a coding agent
+AGENT=""
+for a in claude cursor-agent opencode codex; do
+  command -v "$a" >/dev/null 2>&1 && AGENT="$AGENT $a"
+done
+if [ -n "$AGENT" ]; then
+  pass "coding agent:$AGENT"
+else
+  fail "no supported coding agent found (claude / cursor-agent / opencode / codex)"
+fi
+
+# 3.5 RIGHT PLACE? The resources repo is for copying FROM, not working IN: it
+# carries the solution branches and the facilitator docs, and an agent asked to
+# author the artifact will read them. Detect it by refs and by files, never by
+# branch name — a name check is defeated by `git checkout -b main`, by a
+# single-branch clone, and by any future rename.
+WRONGWHY=""
+for r in solution solution-2 solution-3 resources; do
+  if git rev-parse --verify --quiet "refs/heads/$r" >/dev/null 2>&1 \
+  || git rev-parse --verify --quiet "refs/remotes/origin/$r" >/dev/null 2>&1; then
+    WRONGWHY="$WRONGWHY
+             a git ref named '$r'"
+  fi
+done
+for f in FINDINGS.md docs/FACILITATOR.md docs/WORKSHOP-DESIGN.md docs/COLD-AGENT-TEST.md; do
+  [ -f "$f" ] && WRONGWHY="$WRONGWHY
+             the file $f"
+done
+if [ -n "$WRONGWHY" ] && [ "$ALLOW_RESOURCES" -eq 0 ]; then
+  fail "this is the workshop RESOURCES repo, not your own workspace."
+  printf "        Found:%s\n" "$WRONGWHY"
+  echo
+  echo "        Work in a fresh directory — this one holds the solution branches"
+  echo "        and the facilitator notes, and your agent will read them."
+  echo
+  echo "          ./mkworkspace ~/my-workshop     # sets one up and re-runs this"
+  echo
+  echo "        Facilitator checking this machine? ./preflight --resources"
+  echo
+  echo "Preflight FAILED: wrong directory."
+  exit 1
+fi
+if [ -n "$WRONGWHY" ]; then
+  warn "in the resources repo (--resources given) — workspace checks below are about THIS repo"
+fi
+
+# 4. repo initialized
+if [ -f .swamp.yaml ]; then
+  pass "swamp repo initialized"
+else
+  warn "no .swamp.yaml here — run: swamp repo init"
+fi
+
+# 5. a git repo, so you can checkpoint your work and diff it in Exercise 6.
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+  if ! git rev-parse HEAD >/dev/null 2>&1; then
+    warn "git repo has no commits yet — make a checkpoint: git add -A && git commit -m 'start'"
+  elif git diff-index --quiet HEAD -- 2>/dev/null; then
+    pass "git repo on '$BRANCH', working tree clean"
+  else
+    warn "git repo on '$BRANCH' has uncommitted work — checkpoint it before you switch branches:"
+    warn "    git add -A && git commit -m checkpoint     (or: git stash)"
+  fi
+else
+  warn "not a git repo — you cannot checkpoint your work, and Exercise 6 has nothing to diff."
+  warn "    git init && git add -A && git commit -m 'start'"
+fi
+
+# 6. THE BIG ONE: warm the bundled deno + extension bundle cache.
+# swamp downloads its own deno (~85MB) on first extension load. Do it now,
+# not on conference wifi.
+echo "  ...    warming extension runtime (downloads ~85MB on first run)"
+# --json is swamp's documented non-interactive mode. WITHOUT it, and with a
+# terminal on stdin, `swamp model type search` opens a full-screen fuzzy-picker
+# TUI and blocks forever — a query argument only pre-fills its search box.
+if TYPES=$(swamp model type search --json 2>&1); then
+  DENOPATH=$(swamp doctor extensions --json 2>/dev/null | grep denoPath | sed 's/.*: *"//;s/".*//')
+  if [ -n "$DENOPATH" ] && [ -x "$DENOPATH" ]; then
+    pass "bundled deno present ($($DENOPATH --version 2>/dev/null | head -1))"
+  else
+    fail "bundled deno missing at $DENOPATH — rerun with network access"
+  fi
+  # Participants name their own type, so don't look for a specific name —
+  # report whatever was discovered beyond swamp's built-in command/shell.
+  MINE=$(printf '%s' "$TYPES" \
+    | grep -oE '"raw": *"[^"]+"' \
+    | sed 's/.*"raw": *"//; s/"$//' \
+    | grep -v '^command/shell$' \
+    | tr '\n' ' ')
+  if [ -n "$MINE" ]; then
+    pass "model type discovered: $MINE"
+  else
+    warn "no model type authored yet — that's Exercise 2"
+  fi
+else
+  fail "swamp model type search failed:"
+  printf '%s\n' "$TYPES" | sed 's/^/          /'
+fi
+
+# 7. control plane reachable (start it if not)
+CP=http://127.0.0.1:8099
+if curl -s --max-time 2 "$CP/" >/dev/null 2>&1; then
+  pass "control plane responding on $CP"
+else
+  warn "control plane not running — start it with: ./controlplane/start &"
+fi
+
+echo
+if [ "$FAILED" -eq 1 ]; then
+  echo "Preflight FAILED. Fix the items above before the workshop."
+  exit 1
+fi
+echo "Preflight passed. You're ready."
+echo

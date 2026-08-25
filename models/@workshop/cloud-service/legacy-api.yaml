@@ -1,0 +1,12 @@
+type: '@workshop/cloud-service'
+typeVersion: 2026.08.21.1
+id: 538cf0fb-9271-4858-aa8f-31978bce1cbe
+name: legacy-api
+version: 1
+tags:
+  tier: deprecated
+  team: nobody
+globalArguments:
+  baseUrl: http://127.0.0.1:8099
+  serviceId: legacy-api
+methods: {}

@@ -1,0 +1,144 @@
+id: 1799dcc8-4e14-4127-9693-d0f2309c4de6
+name: infra-audit
+tags:
+  purpose: audit
+inputs:
+  properties:
+    services:
+      type: array
+      items: { type: string }
+      default:
+        - payments-api
+        - catalog-api
+        - checkout-api
+        - recommendations
+        - legacy-api
+    memoryLimitMb:
+      type: number
+      default: 1500
+jobs:
+  # Fail fast and loudly if the environment isn't up, rather than asserting
+  # against stale data and looking like a real incident.
+  - name: precheck
+    description: Confirm the control plane is reachable
+    steps:
+      - name: control-plane-reachable
+        task:
+          type: model_method
+          modelIdOrName: payments-api
+          methodName: ping
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+
+  - name: audit
+    description: Audit every service against the control plane
+    steps:
+      - name: audit-${{ self.svc }}
+        description: Fetch live state and compare to desired state
+        forEach:
+          item: svc
+          in: ${{ inputs.services }}
+        task:
+          type: model_method
+          modelIdOrName: ${{ self.svc }}
+          methodName: audit
+          inputs:
+            memoryLimitMb: ${{ inputs.memoryLimitMb }}
+        dependsOn: []
+        weight: 0
+        allowFailure: true
+    dependsOn:
+      - job: precheck
+        condition:
+          type: succeeded
+    weight: 1
+
+  - name: verify
+    description: Assert the invariants we care about
+    steps:
+      - name: checkout-must-be-healthy
+        task:
+          type: assert
+          expr: >-
+            data.latest("checkout-api", "audit").attributes.health == "healthy"
+          message: "checkout-api is not healthy"
+          severity: high
+        dependsOn: []
+        weight: 0
+        allowFailure: true
+
+      - name: no-version-drift
+        task:
+          type: assert
+          expr: >-
+            data.latest("checkout-api", "audit").attributes.driftDetected == false
+          message: "checkout-api has drifted from desired state"
+          severity: high
+        dependsOn: []
+        weight: 0
+        allowFailure: true
+
+      - name: every-service-owned
+        task:
+          type: assert
+          expr: >-
+            data.latest("payments-api", "audit").attributes.owner != ""
+          message: "payments-api has no owner"
+          severity: medium
+        dependsOn: []
+        weight: 0
+        allowFailure: true
+
+      # These three exist so an injected incident produces visibly NEW
+      # failures rather than the same three every time. Without them the
+      # "rerun your runbook" moment looks identical to the baseline run.
+      - name: all-services-running
+        forEach:
+          item: svc
+          in: ${{ inputs.services }}
+        task:
+          type: assert
+          expr: >-
+            data.latest(self.svc, "audit").attributes.state == "running"
+          message: "${{ self.svc }} is not running"
+          severity: high
+        dependsOn: []
+        weight: 0
+        allowFailure: true
+
+      - name: all-services-healthy
+        forEach:
+          item: svc
+          in: ${{ inputs.services }}
+        task:
+          type: assert
+          expr: >-
+            data.latest(self.svc, "audit").attributes.health == "healthy"
+          message: "${{ self.svc }} is unhealthy"
+          severity: high
+        dependsOn: []
+        weight: 0
+        allowFailure: true
+
+      - name: memory-within-limit
+        forEach:
+          item: svc
+          in: ${{ inputs.services }}
+        task:
+          type: assert
+          expr: >-
+            data.latest(self.svc, "audit").attributes.memoryMb < inputs.memoryLimitMb
+          message: "${{ self.svc }} is over the memory limit"
+          severity: medium
+        dependsOn: []
+        weight: 0
+        allowFailure: true
+    dependsOn:
+      - job: audit
+        condition:
+          type: completed
+    weight: 2
+version: 1

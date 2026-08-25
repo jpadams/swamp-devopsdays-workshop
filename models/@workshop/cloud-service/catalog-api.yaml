@@ -1,0 +1,12 @@
+type: '@workshop/cloud-service'
+typeVersion: 2026.08.21.1
+id: a4e8ea50-0fdc-4968-a280-c8fcc22c2d66
+name: catalog-api
+version: 1
+tags:
+  tier: standard
+  team: platform
+globalArguments:
+  baseUrl: http://127.0.0.1:8099
+  serviceId: catalog-api
+methods: {}

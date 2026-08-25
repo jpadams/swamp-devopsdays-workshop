@@ -1,0 +1,12 @@
+type: '@workshop/cloud-service'
+typeVersion: 2026.08.21.1
+id: 5df3fbdb-60eb-42d0-ad9a-80d599893aa2
+name: payments-api
+version: 1
+tags:
+  tier: production-critical
+  team: payments
+globalArguments:
+  baseUrl: http://127.0.0.1:8099
+  serviceId: payments-api
+methods: {}
