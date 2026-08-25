@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+# Start the fake cloud control plane using swamp's OWN bundled deno.
+# No Docker, no Node, no Python, no system Deno required.
+set -eu
+
+DENOPATH=$(swamp doctor extensions --json 2>/dev/null | grep denoPath | sed 's/.*: *"//;s/".*//')
+
+if [ -z "${DENOPATH:-}" ] || [ ! -x "$DENOPATH" ]; then
+  echo "Bundled deno not found. Run ./preflight first (needs network once)." >&2
+  exit 1
+fi
+
+PORT="${PORT:-8099}"
+DIR=$(dirname "$0")
+echo "starting fake control plane on http://127.0.0.1:$PORT (bundled deno)"
+exec "$DENOPATH" run --allow-net --allow-env "$DIR/server.ts"

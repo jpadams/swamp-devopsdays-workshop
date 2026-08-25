@@ -1,0 +1,58 @@
+id: 2a7c1f40-9e14-4c22-b1a8-7f0e2d3b4c55
+name: remediate
+tags:
+  purpose: remediation
+inputs:
+  properties:
+    services:
+      type: array
+      items: { type: string }
+      default:
+        - payments-api
+        - catalog-api
+        - checkout-api
+        - recommendations
+        - legacy-api
+jobs:
+  - name: refresh
+    description: Re-audit so remediation decisions use current data
+    steps:
+      - name: audit-${{ self.svc }}
+        forEach:
+          item: svc
+          in: ${{ inputs.services }}
+        task:
+          type: model_method
+          modelIdOrName: ${{ self.svc }}
+          methodName: audit
+        dependsOn: []
+        weight: 0
+        allowFailure: true
+    dependsOn: []
+    weight: 0
+
+  - name: remediate
+    description: Restart unhealthy services, never touching production-critical
+    steps:
+      # Guard is TRUTHY => step is SKIPPED.
+      # Skip when the service is production-critical, or already healthy.
+      - name: restart-${{ self.svc }}
+        forEach:
+          item: svc
+          in: ${{ inputs.services }}
+        guard: >-
+          ${{ data.latest(self.svc, "audit").tags.tier == "production-critical"
+              || data.latest(self.svc, "audit").attributes.health == "healthy" }}
+        task:
+          type: model_method
+          modelIdOrName: ${{ self.svc }}
+          methodName: restart
+        dependsOn: []
+        weight: 0
+        allowFailure: true
+    dependsOn:
+      - job: refresh
+        condition:
+          type: completed
+    weight: 1
+version: 1
