@@ -1,0 +1,56 @@
+#!/usr/bin/env sh
+# catchup — copy the reference artifacts for a finished exercise into a
+# participant workspace, for anyone who fell behind.
+#
+#   ./catchup 2 ~/my-workshop     # you now have what Exercise 2 produces
+#   ./catchup 3 ~/my-workshop     # ...plus what Exercise 3 produces
+#   ./catchup 5 ~/my-workshop     # everything, the complete reference
+#
+# Copies FROM a solution branch instead of checking one out, so the workspace
+# keeps its own git history and the participant's checkpoints survive.
+set -eu
+
+N=${1:-}
+DEST=${2:-$(pwd)}
+case "$N" in
+  2) BRANCH=solution-2 ;;
+  3|4) BRANCH=solution-3 ;;
+  5|6) BRANCH=solution ;;
+  *) echo "usage: ./catchup <2|3|4|5|6> [workspace]   (1 authors nothing)" >&2; exit 2 ;;
+esac
+
+SRC=$(cd "$(dirname "$0")" && pwd)
+[ -d "$DEST" ] || { echo "no such workspace: $DEST" >&2; exit 1; }
+DEST=$(cd "$DEST" && pwd)
+[ "$DEST" = "$SRC" ] && { echo "refusing: that's the resources repo, not a workspace." >&2; exit 1; }
+
+if ! git -C "$SRC" rev-parse --verify --quiet "$BRANCH" >/dev/null 2>&1; then
+  echo "resources repo has no branch '$BRANCH'" >&2; exit 1
+fi
+
+# Warn before clobbering the participant's own attempt.
+if [ -n "$(ls -A "$DEST/extensions/models" 2>/dev/null)" ] \
+|| [ -n "$(ls -A "$DEST/workflows" 2>/dev/null | grep -v '^\.gitkeep$' || true)" ]; then
+  echo "note: $DEST already has authored artifacts; this overwrites the reference ones."
+  if git -C "$DEST" rev-parse HEAD >/dev/null 2>&1 \
+     && ! git -C "$DEST" diff-index --quiet HEAD -- 2>/dev/null; then
+    echo "      you have uncommitted work — checkpoint it first:" >&2
+    echo "      git -C $DEST add -A && git -C $DEST commit -m mine" >&2
+    exit 1
+  fi
+fi
+
+COPIED=0
+for path in extensions/models models workflows; do
+  git -C "$SRC" ls-tree -r --name-only "$BRANCH" -- "$path" | grep -v '/\.gitkeep$' | while read -r f; do
+    mkdir -p "$DEST/$(dirname "$f")"
+    git -C "$SRC" show "$BRANCH:$f" > "$DEST/$f"
+    echo "  + $f"
+  done
+  COPIED=1
+done
+[ "$COPIED" -eq 1 ] || { echo "nothing to copy from $BRANCH" >&2; exit 1; }
+
+echo
+echo "Caught up to exercise $N (from $BRANCH) in $DEST"
+echo "Check it: cd $DEST && swamp model type search --json"

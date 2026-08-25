@@ -1,0 +1,12 @@
+type: '@workshop/cloud-service'
+typeVersion: 2026.08.21.1
+id: bf05a151-7cea-4cb7-9579-8906076bfe85
+name: checkout-api
+version: 1
+tags:
+  tier: production-critical
+  team: checkout
+globalArguments:
+  baseUrl: http://127.0.0.1:8099
+  serviceId: checkout-api
+methods: {}
